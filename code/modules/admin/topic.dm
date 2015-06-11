@@ -297,7 +297,7 @@
 			if("queen")				M.change_mob_type( /mob/living/carbon/alien/humanoid/queen , null, null, delmob )
 			if("sentinel")			M.change_mob_type( /mob/living/carbon/alien/humanoid/sentinel , null, null, delmob )
 			if("larva")				M.change_mob_type( /mob/living/carbon/alien/larva , null, null, delmob )
-			if("nymph")				M.change_mob_type( /mob/living/carbon/alien/diona , null, null, delmob )
+			if("nymph")				M.change_mob_type( /mob/living/carbon/monkey/diona , null, null, delmob )
 			if("human")				M.change_mob_type( /mob/living/carbon/human , null, null, delmob )
 			if("slime")				M.change_mob_type( /mob/living/carbon/slime , null, null, delmob )
 			if("monkey")			M.change_mob_type( /mob/living/carbon/monkey , null, null, delmob )
@@ -908,6 +908,9 @@
 				log_admin("[usr.client.ckey] has banned [M.ckey].\nReason: [reason]\nThis will be removed in [mins] minutes.")
 				message_admins("\blue[usr.client.ckey] has banned [M.ckey].\nReason: [reason]\nThis will be removed in [mins] minutes.")
 
+				if(!config.ban_legacy_system)
+					notes_add_sql(M.ckey, "Banned for: [reason]. Duration: [mins] minutes.", usr, M.lastKnownIP, M.computer_id)
+
 				del(M.client)
 				//del(M)	// See no reason why to delete mob. Important stuff can be lost. And ban can be lifted before round ends.
 			if("No")
@@ -932,6 +935,9 @@
 				message_admins("\blue[usr.client.ckey] has banned [M.ckey].\nReason: [reason]\nThis is a permanent ban.")
 				feedback_inc("ban_perma",1)
 				DB_ban_record(BANTYPE_PERMA, M, -1, reason)
+
+				if(!config.ban_legacy_system)
+					notes_add_sql(M.ckey, "Banned for: [reason]. The ban is permanent.", usr, M.lastKnownIP, M.computer_id)
 
 				del(M.client)
 				//del(M)
@@ -1526,6 +1532,9 @@
 		if(!input)	return
 
 		var/customname = input(src.owner, "Pick a title for the report", "Title") as text|null
+
+		//so that we alert people with certain cartidges with a PDA message.
+		alertFaxes()
 
 		for(var/obj/machinery/faxmachine/F in machines)
 			if(! (F.stat & (BROKEN|NOPOWER) ) )
@@ -2760,7 +2769,19 @@
 		var/add = input("Add Player Info") as null|text
 		if(!add) return
 
-		notes_add(key,add,usr)
+		if(config.ban_legacy_system)
+			notes_add(key,add,usr)
+		else
+			var/IP
+			var/CID
+			if(directory[key])
+				var/client/C = directory[key]
+				if(C)
+					IP = C.address
+					CID = C.computer_id
+
+			notes_add_sql(key, add, usr, IP, CID)
+
 		show_player_info(key)
 
 	if(href_list["remove_player_info"])
@@ -2816,4 +2837,41 @@
 		var/playerckey = href_list["warnsearchckey"]
 
 		warning_panel(adminckey, playerckey)
+		return
+
+	else if(href_list["admindibs"])
+		if(!check_rights(R_ADMIN|R_MOD))	return
+		var/mob/M = locate(href_list["admindibs"])
+
+		if(!M || !M.client)
+			usr << "<font color=red><b>The client has lost connection.</b></font>"
+			return
+
+		if(M.client.adminhelped == 2)
+			log_admin("[key_name(usr)] called dibs on [key_name(M)]'s adminhelp!")
+			message_admins("[key_name_admin(usr)] has called dibs on [key_name_admin(M)]'s adminhelp!")
+			message_mods("[key_name_admin(usr)] has called dibs on [key_name_admin(M)]'s adminhelp!")
+			usr << "<font color=blue><b>You have taken over [key_name_admin(M)]'s adminhelp.</b></font>"
+			usr << "[get_options_bar(M, 2, 1, 1)]"
+
+			M << "<font color=red><b>Your adminhelp will be tended to [usr.client.holder.fakekey ? "shortly" : "by [key_name(usr, 0, 0)]"]. Please allow the staff member a minute or two to type up a response.</b></font>"
+			M.client.adminhelped = 1
+		else
+			usr << "<font color=red><b>The adminhelp has already been claimed.</b></font>"
+		return
+
+	else if(href_list["dbnoteedit"])
+		var/noteedit = href_list["dbnoteedit"]
+		var/noteid = text2num(href_list["dbnoteid"])
+		if(!noteedit || !noteid)
+			return
+
+		notes_edit_sql(noteid, noteedit)
+		return
+
+	else if(href_list["notessearchckey"] || href_list["notessearchadmin"])
+		var/adminckey = href_list["notessearchadmin"]
+		var/playerckey = href_list["notessearchckey"]
+
+		show_notes_sql(playerckey, adminckey)
 		return
